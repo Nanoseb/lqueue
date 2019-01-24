@@ -1,0 +1,254 @@
+#!/bin/bash
+# Lightweight local queue management compatible with slurm jobfile
+# by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
+# license MIT
+version="0.9"
+
+
+# Number of cores available
+totalCore=4
+
+queuefile="$HOME/.lqueue"
+deamonPIDfile="/tmp/lqueue.pid"
+defaultJobname="JobName"
+
+
+man () {
+
+    echo -e "usage: lqueue [OPTION]
+
+Options:
+    add [jobfile]       Adds the jobfile to the queue
+    cancel [jobID]      Kill the job identified by jobID
+    status              Prints the job status
+    gen-jobfile         Generates an empty jobfile, any slurm jobfile can be used too
+    deamon              Runs the deamon (needed to be run at each boot)
+    stop-deamon         Stops the deamon
+    help                Prints this help
+    
+lsqueue is a lightweight local queue management compatible with slurm jobfile
+If mpirun is used, make sure you explicitly specify the number of cores to use using
+    mpirun -np [number-of-core] command
+
+The command 'lsqueue deamon' needs to be started at each boot
+version: $version 
+"
+
+}
+
+gen_line() {
+    printf "%${1}s\n" "" | sed 's/\ /─/g'
+}
+
+printWHeader () {
+    sub="$1"
+    size=$(wc -L <<<"$sub")
+    size=$(sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" <<<"$sub" | wc -L)
+    echo "$sub" | sed "2i$(gen_line $size)"
+}
+
+deamonwarning () {
+    if [[ ! -e "$deamonPIDfile" ]] || ! kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+    then
+        echo "Warning: deamon not running"
+    fi
+}
+
+addjob () {
+
+    workdir=$(pwd)
+    jobfile="$( cd "$( dirname "$1" )" && pwd )"/"$(basename $1)"
+    
+    core=$(grep -m 1 "^#SBATCH -n " "$jobfile" | awk '{print $3}')
+    jobname=$(grep -m 1 "^#SBATCH --job-name" "$jobfile" | awk -F'=' '{print $2}')
+
+    [[ "$core" ]] || (echo "No number of core specified" && exit 1)
+    [[ "$jobname" ]] || jobname="$defaultJobname"
+
+    prevjobid=$(tail -n 1 "$queuefile" | awk '{print $2}')
+    jobid=$((prevjobid + 1))
+
+    time=$(date +%s)
+
+    echo "QUEUE $jobid $core $time $jobname $workdir $jobfile" >> "$queuefile"
+    echo "Job $jobid added to queue"
+}
+
+showstatus () {
+    echo "Status JobID Core Time JobName WorkingDir JobFile PID"
+    grep "^RUNNING" "$queuefile" | sort -r
+    grep "^QUEUE" "$queuefile" | sort -r 
+    grep -vE "^RUNNING|^QUEUE" "$queuefile" | sort -r | head -n 5
+}
+
+deamonstart () {
+    if [[ -e "$deamonPIDfile" ]] && kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+    then
+        echo "Deamon already running, restarting..."
+        kill "$(cat "$deamonPIDfile")"
+    else
+        echo "Starting deamon..."
+    fi
+    nohup bash "$0" loopdeamon 2> /dev/null &
+    echo $! > "$deamonPIDfile"
+
+}
+
+deamonstop () {
+    if [[ -e "$deamonPIDfile" ]] && kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+    then
+        echo "Killing deamon..."
+        kill "$(cat "$deamonPIDfile")"
+    else
+        echo "Deamon not running"
+    fi
+}
+
+
+loopdeamon () {
+    while true;
+    do
+        grep "^RUNNING" "$queuefile" | while read job
+        do
+            jobID=$(awk '{print $2}' <<<"$job")
+            jobPID=$(awk '{print $8}' <<<"$job")
+            if ! kill -0 "$jobPID" > /dev/null 2>&1;
+            then
+                sed -i "s/^RUNNING\ $jobID\ /END\ $jobID\ /" "$queuefile"
+                echo Job $jobID finished
+                #todo: compute runtime? export it to outputfile?
+            fi
+        done
+
+        runningCore=$(grep "^RUNNING" "$queuefile" | awk '{sum+=$3} END {print sum}')
+        availCore=$((totalCore - runningCore))
+
+        grep "^QUEUE" "$queuefile" | while read job
+        do
+            jobCore=$(awk '{print $3}' <<<"$job")
+            if [[ "$jobCore" -le "$availCore" ]]
+            then
+                jobID=$(awk '{print $2}' <<<"$job")
+                startjob "$jobID"
+                availCore=$((availCore - jobCore))
+            fi
+        done
+
+        sleep 1m
+    done
+}
+
+
+startjob () {
+    jobID="$1"
+    job=$(grep "^[A-Z]*\ $jobID\ " "$queuefile")
+    workdir=$(awk '{print $6}' <<<"$job")
+    jobfile=$(awk '{print $7}' <<<"$job")
+    errfile=error-"$jobID".err
+    outputfile=output-"$jobID".out
+
+    cd "$workdir" 
+    echo "==== Job $jobID starting at $(date) ====" > "$outputfile"
+    nohup /bin/bash "$jobfile" 2> "$errfile" >> "$outputfile" &
+    PID=$!
+
+    sed -i "/^[A-Z]*\ $jobID\ /d" "$queuefile"
+    awk -v pid=$PID '{print "RUNNING " $2 " " $3 " " $4 " " $5 " " $6 " " $7 " " pid}' <<<"$job" >> "$queuefile"
+    echo "Starting job $jobID"
+}
+
+
+canceljob () {
+    jobID=$1
+    job=$(grep "^[A-Z]*\ $jobID\ " "$queuefile")
+
+    jobstate=$(awk '{print $1}' <<<"$job")
+
+    if [[ "$jobstate" == "RUNNING" ]]
+    then
+        jobPID=$(awk '{print $8}' <<<"$job")
+        if kill -0 "$jobPID" > /dev/null 2>&1;
+        then
+            echo "Killing job $jobID"
+            kill "$jobPID"
+            kill "$jobPID"
+            sed -i "s/^[A-Z]*\ $jobID\ /KILLED\ $jobID\ /" "$queuefile"
+        else
+            echo Job $jobID doesn\'t seem to be running
+        fi
+    else
+        if [[ "$jobstate" == "QUEUE" ]]
+        then
+            sed -i "s/^[A-Z]*\ $jobID\ /CANCELED\ $jobID\ /" "$queuefile"
+            echo "Canceling job $jobID"
+        else
+            echo "Job $jobID not in queue" 
+        fi
+    fi
+}
+
+genjobfile () {
+echo -e '#!/bin/bash
+#SBATCH -n 2
+#SBATCH --job-name=my_job_name
+
+source ~/.bashrc
+
+mpirun -np 2 mysoftware' > jobfile-gen
+
+echo "New jobfile exported to: jobfile-gen"
+
+}
+
+
+if [[ ! -f "$queuefile" ]]
+then
+    touch "$queuefile"
+fi
+
+
+case $1 in
+    add)
+        deamonwarning 
+        addjob $2
+        exit
+        ;;
+    cancel)
+        canceljob $2
+        exit
+        ;;
+    help|h)
+        man
+        exit 0
+        ;;
+    deamon)
+        deamonstart
+        exit 0
+        ;;
+    stop-deamon)
+        deamonstop
+        exit 0
+        ;;
+    status)
+        deamonwarning 
+        printWHeader "$(showstatus | column -t | \
+            sed -r 's/^(CANCELED|KILLED|END|QUEUE)(.*)$/\x1b[2m\1\2/;s/$/\x1b[0m/')"
+        exit 0
+        ;;
+    gen-jobfile)
+        genjobfile
+        exit 0
+        ;;
+    loopdeamon)
+        loopdeamon
+        ;;
+
+    *)
+        if [[ "$1" ]]
+        then
+            echo "unknown option: $1"
+        fi
+        man
+        exit 0
+        ;;
+esac
