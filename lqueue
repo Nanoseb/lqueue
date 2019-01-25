@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9"
+version="0.9.2"
 
 
 # Number of cores available
@@ -19,7 +19,7 @@ man () {
 
 Options:
     add [jobfile]                 Adds the jobfile to the queue
-    cancel [jobID] [refresco]     Kill the job identified by jobID, add 'refresco' parameter to write a stopfile instead of killing to process
+    cancel [jobID] [refresco]     Kill the job identified by jobID, add 'refresco' parameter to write a stopfile instead of killing the process
     status                        Prints the job status
     gen-jobfile                   Generates an empty jobfile, any slurm jobfile can be used too
     deamon                        Runs the deamon (needed to be run at each boot)
@@ -183,7 +183,10 @@ canceljob () {
             if kill -0 "$jobPID" > /dev/null 2>&1;
             then
                 echo "Killing job $jobID"
-                kill "$jobPID" # TODO: check if working properly
+
+                # killing PID and all its chids but not its parents
+                kill $(pstree -p $jobPID | grep -oP '(?<=\()[0-9]+(?=\))')
+
                 sed -i "s/^[A-Z]*\ $jobID\ /KILLED\ $jobID\ /" "$queuefile"
             else
                 echo Job $jobID doesn\'t seem to be running
