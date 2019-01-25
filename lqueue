@@ -18,13 +18,13 @@ man () {
     echo -e "usage: lqueue [OPTION]
 
 Options:
-    add [jobfile]       Adds the jobfile to the queue
-    cancel [jobID]      Kill the job identified by jobID
-    status              Prints the job status
-    gen-jobfile         Generates an empty jobfile, any slurm jobfile can be used too
-    deamon              Runs the deamon (needed to be run at each boot)
-    stop-deamon         Stops the deamon
-    help                Prints this help
+    add [jobfile]                 Adds the jobfile to the queue
+    cancel [jobID] [refresco]     Kill the job identified by jobID, add 'refresco' parameter to write a stopfile instead of killing to process
+    status                        Prints the job status
+    gen-jobfile                   Generates an empty jobfile, any slurm jobfile can be used too
+    deamon                        Runs the deamon (needed to be run at each boot)
+    stop-deamon                   Stops the deamon
+    help                          Prints this help
     
 lsqueue is a lightweight local queue management compatible with slurm jobfile
 If mpirun is used, make sure you explicitly specify the number of cores to use using
@@ -144,8 +144,12 @@ startjob () {
     job=$(grep "^[A-Z]*\ $jobID\ " "$queuefile")
     workdir=$(awk '{print $6}' <<<"$job")
     jobfile=$(awk '{print $7}' <<<"$job")
-    errfile=error-"$jobID".err
-    outputfile=output-"$jobID".out
+
+    errfile=$(grep -m 1 "^#SBATCH --error" "$jobfile" | awk -F'=' '{print $2}')
+    outputfile=$(grep -m 1 "^#SBATCH --output" "$jobfile" | awk -F'=' '{print $2}')
+
+    [[ "$errfile" ]] || errfile=error-"$jobID".err
+    [[ "$outputfile" ]] || outputfile=output-"$jobID".out
 
     cd "$workdir" 
     echo "==== Job $jobID starting at $(date) ====" > "$outputfile"
@@ -159,22 +163,31 @@ startjob () {
 
 
 canceljob () {
-    jobID=$1
+    jobID="$1"
     job=$(grep "^[A-Z]*\ $jobID\ " "$queuefile")
 
     jobstate=$(awk '{print $1}' <<<"$job")
 
     if [[ "$jobstate" == "RUNNING" ]]
     then
-        jobPID=$(awk '{print $8}' <<<"$job")
-        if kill -0 "$jobPID" > /dev/null 2>&1;
+        # Stoping if refresco by writing a stopfile
+        if [[ "$2" == "refresco" ]]
         then
-            echo "Killing job $jobID"
-            kill "$jobPID"
-            kill "$jobPID"
-            sed -i "s/^[A-Z]*\ $jobID\ /KILLED\ $jobID\ /" "$queuefile"
-        else
-            echo Job $jobID doesn\'t seem to be running
+            workdir=$(awk '{print $6}' <<<"$job")
+            echo "Writing stopfile in $workdir"
+            touch "$workdir"/stopfile
+
+        else # otherwise, use kill
+
+            jobPID=$(awk '{print $8}' <<<"$job")
+            if kill -0 "$jobPID" > /dev/null 2>&1;
+            then
+                echo "Killing job $jobID"
+                kill "$jobPID" # TODO: check if working properly
+                sed -i "s/^[A-Z]*\ $jobID\ /KILLED\ $jobID\ /" "$queuefile"
+            else
+                echo Job $jobID doesn\'t seem to be running
+            fi
         fi
     else
         if [[ "$jobstate" == "QUEUE" ]]
@@ -214,10 +227,10 @@ case $1 in
         exit
         ;;
     cancel)
-        canceljob $2
+        canceljob $2 $3
         exit
         ;;
-    help|h)
+    help)
         man
         exit 0
         ;;
