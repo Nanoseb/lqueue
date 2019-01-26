@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9.3"
+version="0.9.4"
 
 
 # Number of cores available
@@ -59,8 +59,8 @@ addjob () {
     workdir=$(pwd)
     jobfile="$( cd "$( dirname "$1" )" && pwd )"/"$(basename $1)"
     
-    core=$(grep -m 1 "^#SBATCH -n " "$jobfile" | awk '{print $3}')
-    jobname=$(grep -m 1 "^#SBATCH --job-name" "$jobfile" | awk -F'=' '{print $2}')
+    core=$(grep -E -m 1 "^#SBATCH --ntasks=|^#SBATCH -n " "$jobfile" | sed 's/=/ /' | awk '{print $3}')
+    jobname=$(grep -E -m 1 "^#SBATCH --job-name=|^#SBATCH -J " "$jobfile" | sed 's/=/ /' | awk '{print $3}')
 
     [[ "$core" ]] || (echo "No number of core specified" && exit 1)
     [[ "$jobname" ]] || jobname="$defaultJobname"
@@ -79,7 +79,7 @@ showstatus () {
     grep "^RUNNING" "$queuefile" | sort 
     grep "^QUEUE" "$queuefile" | sort 
     echo --
-    grep -vE "^RUNNING|^QUEUE" "$queuefile" | sort -r | head -n 5
+    grep -vE "^RUNNING|^QUEUE" "$queuefile" | tail -n 5 | tac 
 }
 
 deamonstart () {
@@ -146,14 +146,14 @@ startjob () {
     workdir=$(awk '{print $6}' <<<"$job")
     jobfile=$(awk '{print $7}' <<<"$job")
 
-    errfile=$(grep -m 1 "^#SBATCH --error" "$jobfile" | awk -F'=' '{print $2}')
-    outputfile=$(grep -m 1 "^#SBATCH --output" "$jobfile" | awk -F'=' '{print $2}')
+    errfile=$(grep -E -m 1 "^#SBATCH --error=|^#SBATCH -e " "$jobfile" | sed 's/=/ /' | awk '{print $NF}')
+    outputfile=$(grep -E -m 1 "^#SBATCH --output=|^#SBATCH -o " "$jobfile" | sed 's/=/ /' | awk '{print $NF}')
 
     [[ "$errfile" ]] || errfile=error-"$jobID".err
     [[ "$outputfile" ]] || outputfile=output-"$jobID".out
 
     cd "$workdir" 
-    echo "==== Job $jobID starting at $(date) ====" > "$outputfile"
+    echo "==== Job $jobID starting $(date) ====" > "$outputfile"
     nohup /bin/bash "$jobfile" 2> "$errfile" >> "$outputfile" &
     PID=$!
 
