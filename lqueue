@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9.2"
+version="0.9.3"
 
 
 # Number of cores available
@@ -23,16 +23,16 @@ Options:
     status                        Prints the job status
     gen-jobfile                   Generates an empty jobfile, any slurm jobfile can be used too
     deamon                        Runs the deamon (needed to be run at each boot)
-    stop-deamon                   Stops the deamon
+    stop-deamon                   Stops the deamon (running jobs won't be killed, and the queue won't be lost)
     help                          Prints this help
     
 lsqueue is a lightweight local queue management compatible with slurm jobfile
-If mpirun is used, make sure you explicitly specify the number of cores to use using
-    mpirun -np [number-of-core] command
+If mpirun is used, make sure you explicitly specify the number of cores to use with
+    mpirun -np [number-of-cores] command
 
 The command 'lsqueue deamon' needs to be started at each boot
-version: $version 
-"
+
+lqueue version: $version "
 
 }
 
@@ -76,8 +76,9 @@ addjob () {
 
 showstatus () {
     echo "Status JobID Core Time JobName WorkingDir JobFile PID"
-    grep "^RUNNING" "$queuefile" | sort -r
-    grep "^QUEUE" "$queuefile" | sort -r 
+    grep "^RUNNING" "$queuefile" | sort 
+    grep "^QUEUE" "$queuefile" | sort 
+    echo --
     grep -vE "^RUNNING|^QUEUE" "$queuefile" | sort -r | head -n 5
 }
 
@@ -207,6 +208,8 @@ genjobfile () {
 echo -e '#!/bin/bash
 #SBATCH -n 2
 #SBATCH --job-name=my_job_name
+#SBATCH --output=outputfile.job
+#SBATCH --error=errorfile.job
 
 source ~/.bashrc
 
@@ -247,7 +250,7 @@ case $1 in
         ;;
     status)
         deamonwarning 
-        printWHeader "$(showstatus | column -t | \
+        printWHeader "$(showstatus | awk '{print $1 " " $2 " " $3 " " $5 " " $6}' | column -t |  \
             sed -r 's/^(CANCELED|KILLED|END|QUEUE)(.*)$/\x1b[2m\1\2/;s/$/\x1b[0m/')"
         exit 0
         ;;
