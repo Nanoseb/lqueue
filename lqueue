@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9.4"
+version="0.9.5"
 
 
 # Number of cores available
@@ -65,7 +65,7 @@ addjob () {
     [[ "$core" ]] || (echo "No number of core specified" && exit 1)
     [[ "$jobname" ]] || jobname="$defaultJobname"
 
-    prevjobid=$(tail -n 1 "$queuefile" | awk '{print $2}')
+    prevjobid=$(awk '{print $2}' "$queuefile" | sort -n | tail -n 1)
     jobid=$((prevjobid + 1))
 
     time=$(date +%s)
