@@ -6,7 +6,9 @@ version="0.9.7"
 
 
 # Number of cores available
-totalCore=4
+totalCore=$(grep -c '^processor' /proc/cpuinfo)
+# uncomment the following line to overwrite the number of core available
+#totalCore=16
 
 queuefile="$HOME/.lqueue"
 deamonPIDfile="/tmp/lqueue.pid"
