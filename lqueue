@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9.5"
+version="0.9.7"
 
 
 # Number of cores available
@@ -18,13 +18,14 @@ man () {
     echo -e "usage: lqueue [OPTION]
 
 Options:
-    add [jobfile]                 Adds the jobfile to the queue
-    cancel [jobID] [refresco]     Kill the job identified by jobID, add 'refresco' parameter to write a stopfile instead of killing the process
-    status                        Prints the job status
-    gen-jobfile                   Generates an empty jobfile, any slurm jobfile can be used too
-    deamon                        Runs the deamon (needed to be run at each boot)
-    stop-deamon                   Stops the deamon (running jobs won't be killed, and the queue won't be lost)
-    help                          Prints this help
+    add [jobfile] [next]                  Adds the jobfile to the queue, add 'next' parameter to put it at the top of the queue
+    cancel [jobID/running] [refresco]     Kill the job identified by jobID, or a currently running job with 'running',
+                                          add 'refresco' parameter to write a stopfile instead of killing the process.
+    status                                Prints the job status
+    gen-jobfile                           Generates an empty jobfile, any slurm jobfile can be used too
+    deamon                                Runs the deamon (needed to be run at each boot)
+    stop-deamon                           Stops the deamon (running jobs won't be killed, and the queue won't be lost)
+    help                                  Prints this help
     
 lsqueue is a lightweight local queue management compatible with slurm jobfile
 If mpirun is used, make sure you explicitly specify the number of cores to use with
@@ -70,14 +71,21 @@ addjob () {
 
     time=$(date +%s)
 
-    echo "QUEUE $jobid $core $time $jobname $workdir $jobfile" >> "$queuefile"
+    queueline="QUEUE $jobid $core $time $jobname $workdir $jobfile"
+
+    if [[ "$2" == "next" ]]
+    then
+        echo -e "$queueline\n$(cat "$queuefile")" > "$queuefile"
+    else
+        echo "$queueline" >> "$queuefile"
+    fi
     echo "Job $jobid added to queue"
 }
 
 showstatus () {
     echo "Status JobID Core Time JobName WorkingDir JobFile PID"
     grep "^RUNNING" "$queuefile" | sort 
-    grep "^QUEUE" "$queuefile" | sort 
+    grep "^QUEUE" "$queuefile" 
     echo --
     grep -vE "^RUNNING|^QUEUE" "$queuefile" | tail -n 5 | tac 
 }
@@ -164,7 +172,19 @@ startjob () {
 
 
 canceljob () {
-    jobID="$1"
+
+    if [[ "$1" == "running" ]]
+    then
+        jobID=$(grep -m 1 "^RUNNING\ " "$queuefile" | awk '{print $2}')
+        if [[ -z "$jobID" ]]
+        then
+            echo "No running job"
+            exit 1
+        fi
+    else
+        jobID="$1"
+    fi
+
     job=$(grep "^[A-Z]*\ $jobID\ " "$queuefile")
 
     jobstate=$(awk '{print $1}' <<<"$job")
@@ -229,7 +249,7 @@ fi
 case $1 in
     add)
         deamonwarning 
-        addjob $2
+        addjob $2 $3
         exit
         ;;
     cancel)
