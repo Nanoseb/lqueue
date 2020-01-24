@@ -2,9 +2,9 @@
 Lightweight local queue management compatible with slurm jobfiles
 
 ### Usage:
-- First run the deamon:
+- First run the daemon:
 ```
-lqueue deamon
+lqueue daemon
 ```
 
 - Then generate an empty jobfile (a slurm jobfile can be used too)
