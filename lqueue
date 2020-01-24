@@ -11,7 +11,7 @@ totalCore=$(grep -c '^processor' /proc/cpuinfo)
 #totalCore=16
 
 queuefile="$HOME/.lqueue"
-deamonPIDfile="/tmp/lqueue.pid"
+daemonPIDfile="/tmp/lqueue.pid"
 defaultJobname="JobName"
 
 
@@ -25,15 +25,15 @@ Options:
                                           add 'refresco' parameter to write a stopfile instead of killing the process.
     status                                Prints the job status
     gen-jobfile                           Generates an empty jobfile, any slurm jobfile can be used too
-    deamon                                Runs the deamon (needed to be run at each boot)
-    stop-deamon                           Stops the deamon (running jobs won't be killed, and the queue won't be lost)
+    daemon                                Runs the daemon (needed to be run at each boot)
+    stop-daemon                           Stops the daemon (running jobs won't be killed, and the queue won't be lost)
     help                                  Prints this help
     
 lsqueue is a lightweight local queue management compatible with slurm jobfile
 If mpirun is used, make sure you explicitly specify the number of cores to use with
     mpirun -np [number-of-cores] command
 
-The command 'lsqueue deamon' needs to be started at each boot
+The command 'lsqueue daemon' needs to be started at each boot
 
 lqueue version: $version "
 
@@ -50,10 +50,10 @@ printWHeader () {
     echo "$sub" | sed "2i$(gen_line $size)"
 }
 
-deamonwarning () {
-    if [[ ! -e "$deamonPIDfile" ]] || ! kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+daemonwarning () {
+    if [[ ! -e "$daemonPIDfile" ]] || ! kill -0 "$(cat "$daemonPIDfile")" > /dev/null 2>&1;
     then
-        echo "Warning: deamon not running"
+        echo "Warning: daemon not running"
     fi
 }
 
@@ -92,31 +92,31 @@ showstatus () {
     grep -vE "^RUNNING|^QUEUE" "$queuefile" | tail -n 5 | tac 
 }
 
-deamonstart () {
-    if [[ -e "$deamonPIDfile" ]] && kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+daemonstart () {
+    if [[ -e "$daemonPIDfile" ]] && kill -0 "$(cat "$daemonPIDfile")" > /dev/null 2>&1;
     then
-        echo "Deamon already running, restarting..."
-        kill "$(cat "$deamonPIDfile")"
+        echo "daemon already running, restarting..."
+        kill "$(cat "$daemonPIDfile")"
     else
-        echo "Starting deamon..."
+        echo "Starting daemon..."
     fi
-    nohup bash "$0" loopdeamon 2> /dev/null &
-    echo $! > "$deamonPIDfile"
+    nohup bash "$0" loopdaemon 2> /dev/null &
+    echo $! > "$daemonPIDfile"
 
 }
 
-deamonstop () {
-    if [[ -e "$deamonPIDfile" ]] && kill -0 "$(cat "$deamonPIDfile")" > /dev/null 2>&1;
+daemonstop () {
+    if [[ -e "$daemonPIDfile" ]] && kill -0 "$(cat "$daemonPIDfile")" > /dev/null 2>&1;
     then
-        echo "Killing deamon..."
-        kill "$(cat "$deamonPIDfile")"
+        echo "Killing daemon..."
+        kill "$(cat "$daemonPIDfile")"
     else
-        echo "Deamon not running"
+        echo "daemon not running"
     fi
 }
 
 
-loopdeamon () {
+loopdaemon () {
     while true;
     do
         grep "^RUNNING" "$queuefile" | while read job
@@ -250,7 +250,7 @@ fi
 
 case $1 in
     add)
-        deamonwarning 
+        daemonwarning 
         addjob $2 $3
         exit
         ;;
@@ -262,16 +262,16 @@ case $1 in
         man
         exit 0
         ;;
-    deamon)
-        deamonstart
+    daemon)
+        daemonstart
         exit 0
         ;;
-    stop-deamon)
-        deamonstop
+    stop-daemon)
+        daemonstop
         exit 0
         ;;
     status)
-        deamonwarning 
+        daemonwarning 
         printWHeader "$(showstatus | awk '{print $1 " " $2 " " $3 " " $5 " " $6}' | column -t |  \
             sed -r 's/^(CANCELED|KILLED|END|QUEUE)(.*)$/\x1b[2m\1\2/;s/$/\x1b[0m/')"
         exit 0
@@ -280,8 +280,8 @@ case $1 in
         genjobfile
         exit 0
         ;;
-    loopdeamon)
-        loopdeamon
+    loopdaemon)
+        loopdaemon
         ;;
 
     *)
