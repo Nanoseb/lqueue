@@ -2,7 +2,7 @@
 # Lightweight local queue management compatible with slurm jobfile
 # by Sebastien Lemaire <sebastien.lemaire@soton.ac.uk>
 # license MIT
-version="0.9.7"
+version="0.9.8"
 
 
 # Number of cores available
@@ -110,6 +110,7 @@ daemonstop () {
     then
         echo "Killing daemon..."
         kill "$(cat "$daemonPIDfile")"
+        rm "$daemonPIDfile"
     else
         echo "daemon not running"
     fi
